@@ -5,7 +5,7 @@ from splinter import Browser
 bl_info = {
 	"name": "sheepit",
 	"description": "Addon for uploading your project to sheepIt",
-	"author": "Maxim Raznatovski",
+	"author": "maximmaxim345",
 	"version": (0, 1),
 	"blender": (2, 78, 0),
 	"location": "Propertys > Render",
@@ -79,6 +79,9 @@ class sendProject(bpy.types.Operator):
 	def execute(self, context):
 		if not bpy.data.is_saved:
 			self.report({"ERROR"}, "Save your file first.")
+			return {"CANCELLED"}
+		if bpy.context.scene.camera==None:
+			self.report({"ERROR"}, "No camera on scene")
 			return {"CANCELLED"}
 		bpy.ops.wm.save_mainfile()
 		a = send(self)
@@ -185,12 +188,17 @@ def send(self):
 		self.report({"ERROR"}, "Check your credentials. You can find them in the user preferences under the addon")
 		return "CANCELLED"
 	browser.visit("https://www.sheepit-renderfarm.com/jobs.php?mode=add")
+	browser.screenshot(name="C", suffix='.png')
+	if browser.is_element_present_by_text("Your current limit is 2 projects."):
+		self.report({"ERROR"}, "You allready have 2 Projects")
+		return "CANCELLED"
 	browser.attach_file("addjob_archive", bpy.context.blend_data.filepath)
 	
 	browser.screenshot(name="C", suffix='.png')
 	
 	sendButton = browser.find_by_value("Send this file")
 	sendButton.first.click()
+	
 	
 	browser.screenshot(name="D", suffix='.png')
 	
