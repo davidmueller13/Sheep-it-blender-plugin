@@ -17,7 +17,7 @@
 #  All rights reserved.
 #
 #  ***** END GPL LICENSE BLOCK *****
-import bpy, sys, os, time
+import bpy, sys, os, time, tempfile
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from splinter import Browser
 
@@ -71,12 +71,14 @@ class SheepitPropertys(bpy.types.PropertyGroup):
 	stillSplitting = bpy.props.IntProperty(
 	min=4,
 	max=64,
+	default=4,
 	name="Split in tiles",
 	description="To increase the render time alowed by frame you can split each frame in tiles. Tiles will act as layers and be put in top of each other to create the final frame. You are allow of 25 min per tile."
 	)
 	animationSplitting = bpy.props.IntProperty(
 	min=1,
 	max=64,
+	default=1,
 	description="To increase the render time alowed by frame you can split each frame in tiles. Tiles will act as layers and be put in top of each other to create the final frame. You are allow of 25 min per tile."
 	)
 	sendProject=bpy.props.BoolProperty(
@@ -87,12 +89,21 @@ class SheepitPropertys(bpy.types.PropertyGroup):
 class sendProject(bpy.types.Operator):
 	bl_label = "Send Project"
 	bl_idname = "sheepit.send"
-	
+	def invoke(self, context, event):
+		return context.window_manager.invoke_props_dialog(self)
+	def draw(self, context):
+		layout = self.layout
+		layout.label("Save file and upload to Sheepit.")
+		layout.label("(This could take a couple of minutes)")
 	def execute(self, context):
-		send(self)
-		return {"FINISHED"}
+		if not bpy.data.is_saved:
+			self.report({"ERROR"}, "Save your file first.")
+			return {"CANCELLED"}
+		bpy.ops.wm.save_mainfile()
+		a = send(self)
+		return {a}
 class editLogin(bpy.types.Operator):
-	bl_label = "Edit cridentials"
+	bl_label = "Edit credentials"
 	bl_idname = "sheepit.editlogin"
 	
 	signIn_login = bpy.props.StringProperty(
@@ -150,15 +161,23 @@ def saveLogin(username, password):
 	with open(os.path.join(os.path.dirname( __file__ ), '..', '..', "presets/sheepit.config"), "w") as f:
 		f.write(username + "\n" + password)
 def getLogin():
-	with open(os.path.join(os.path.dirname( __file__ ), '..', '..', "presets/sheepit.config"), "r") as f:
-		login = f.read().split("\n")
-		return login[0], login[1]
+	try:
+		with open(os.path.join(os.path.dirname( __file__ ), '..', '..', "presets/sheepit.config"), "r") as f:
+			login = f.read().split("\n")
+			return login[0], login[1]
+	except FileNotFoundError:
+		return "failed", "fileNotFound"
 def send(self):
+	usrname, passwd = getLogin()
+	if usrname=="failed":
+		if passwd=="fileNotFound":
+			self.report({"ERROR"}, "you must enter your account in first. You can find them in the user preferences under the addon")
+			return "CANCELLED"
 	
 	pjsname = "phantomjs-win.exe"
 	pjspath = os.path.dirname(os.path.abspath(__file__))+ "\\" + pjsname
 
-	browser = Browser("phantomjs", executable_path=pjspath, service_log_path="C:\\tmp\\l.log")
+	browser = Browser("phantomjs", executable_path=pjspath, service_log_path=tempfile.gettempdir() + "\\l.log")
 
 	browser.visit("https://www.sheepit-renderfarm.com/index.php")
 
@@ -167,24 +186,32 @@ def send(self):
 	time.sleep(1)
 	Button2 = browser.find_by_css("a.dropdown-toggle.dropdown-form-toggle")
 	Button2.first.click()
-
-	usrname, passwd = getLogin()
 	
 	usernameField = browser.find_by_id("login-header_login")
 	usernameField.type(usrname)
 
 	passwordField = browser.find_by_id("login-header_password")
 	passwordField.type(passwd)
+	
+	browser.screenshot(name="A", suffix='.png')
 
 	signInButton = browser.find_by_id("login-header_submit")
 	signInButton.click()
 
 	time.sleep(1)
+	browser.screenshot(name="B", suffix='.png')
+	if browser.is_element_present_by_id("login_login"):
+		self.report({"ERROR"}, "Check your credentials. You can find them in the user preferences under the addon")
+		return "CANCELLED"
 	browser.visit("https://www.sheepit-renderfarm.com/jobs.php?mode=add")
 	browser.attach_file("addjob_archive", bpy.context.blend_data.filepath)
 	
+	browser.screenshot(name="C", suffix='.png')
+	
 	sendButton = browser.find_by_value("Send this file")
 	sendButton.first.click()
+	
+	browser.screenshot(name="D", suffix='.png')
 	
 	exeVersion = browser.find_by_id("addjob_exe")
 	exeVersion.first.select(bpy.context.scene.sheepIt.Version);
@@ -200,12 +227,18 @@ def send(self):
 		browser.execute_script("addjob_split_sample_range_value_0.value = " + str(bpy.context.scene.sheepIt.stillSplitting))
 	else:
 		browser.execute_script("addjob_split_animation_sample_range_value_0.value = " + str(bpy.context.scene.sheepIt.animationSplitting))
+	
+	browser.screenshot(name="E", suffix='.png')
+	
 	okButton = browser.find_by_id("addjob_submit_0")
 	okButton.first.click()
 	
-	browser.screenshot(name="network", suffix='.png')
+	time.sleep(2)
+	browser.screenshot(name="F", suffix='.png')
+	
 	self.report({'INFO'}, "uploaded")
 	browser.quit()
+	return "FINISHED"
 def register():
 	bpy.utils.register_module(__name__)
 	bpy.types.Scene.sheepIt = bpy.props.PointerProperty(type=SheepitPropertys)
